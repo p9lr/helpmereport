@@ -1,0 +1,42 @@
+name: helpmereq
+version: '${project.version}'
+main: net.saman.helpmereq.Helpmereq
+api-version: '1.20'
+commands:
+  report:
+    description: Send a report to admins.
+    usage: /report <message>
+  helpme:
+    description: Send a help request to helpers.
+    usage: /helpme <message>
+  reports:
+    description: View pending reports (for admins).
+    usage: /reports
+  helprequests:
+    description: View pending help requests (for helpers).
+    usage: /helprequests
+  allrequests:
+    description: View all pending requests (for admins and helpers).
+    usage: /allrequests
+  reply:
+    description: Reply to a private chat.
+    usage: /reply <message>
+permissions:
+  requestplugin.report:
+    description: Allows players to send reports.
+    default: true
+  requestplugin.helpme:
+    description: Allows players to send help requests.
+    default: true
+  requestplugin.manage.reports:
+    description: Allows admins to manage reports.
+    default: op
+  requestplugin.manage.helprequests:
+    description: Allows helpers to manage help requests.
+    default: op
+  requestplugin.manage.allrequests:
+    description: Allows admins and helpers to manage all requests.
+    default: op
+  requestplugin.tp:
+    description: Allows admins and helpers to teleport to players.
+    default: op
