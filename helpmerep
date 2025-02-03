@@ -1,0 +1,399 @@
+package net.saman.helpmereq;
+
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.plugin.java.JavaPlugin;
+
+import java.util.*;
+
+public class Helpmereq extends JavaPlugin implements Listener {
+
+    private Map<UUID, String> pendingReports = new HashMap<>();
+    private Map<UUID, String> pendingHelpRequests = new HashMap<>();
+    private Map<UUID, UUID> reportToPlayer = new HashMap<>();
+    private Map<UUID, UUID> helpRequestToPlayer = new HashMap<>();
+    private Map<UUID, UUID> activeChats = new HashMap<>(); // ذخیره چت‌های فعال
+    private Map<UUID, Location> playerLocations = new HashMap<>(); // ذخیره موقعیت بازیکنان قبل از تلپورت
+
+    @Override
+    public void onEnable() {
+        getServer().getPluginManager().registerEvents(this, this);
+        getLogger().info("RequestPlugin enabled!");
+    }
+
+    @Override
+    public void onDisable() {
+        getLogger().info("RequestPlugin disabled!");
+    }
+
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!(sender instanceof Player)) {
+            sender.sendMessage(ChatColor.RED + "Only players can use this command!");
+            return true;
+        }
+
+        Player player = (Player) sender;
+
+        if (command.getName().equalsIgnoreCase("report")) {
+            return handleReport(player, args);
+        } else if (command.getName().equalsIgnoreCase("helpme")) {
+            return handleHelpMe(player, args);
+        } else if (command.getName().equalsIgnoreCase("reports")) {
+            return handleReports(player);
+        } else if (command.getName().equalsIgnoreCase("helprequests")) {
+            return handleHelpRequests(player);
+        } else if (command.getName().equalsIgnoreCase("allrequests")) {
+            return handleAllRequests(player);
+        } else if (command.getName().equalsIgnoreCase("reply")) {
+            return handleReply(player, args);
+        }
+
+        return false;
+    }
+    private UUID findHelpRequestIdByPlayer(Player player) {
+        for (Map.Entry<UUID, UUID> entry : helpRequestToPlayer.entrySet()) {
+            if (entry.getValue().equals(player.getUniqueId())) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+    private boolean handleReport(Player player, String[] args) {
+        if (args.length == 0) {
+            player.sendMessage(ChatColor.RED + "Usage: /report <message>");
+            return true;
+        }
+
+        String message = String.join(" ", args);
+        UUID reportId = UUID.randomUUID();
+        pendingReports.put(reportId, message);
+        reportToPlayer.put(reportId, player.getUniqueId());
+
+        // اطلاع‌رسانی به ادمین‌ها
+        for (Player admin : Bukkit.getOnlinePlayers()) {
+            if (admin.hasPermission("requestplugin.manage.reports")) {
+                admin.sendMessage(ChatColor.RED + "[Report] " + ChatColor.GREEN + player.getName() + ": " + message);
+            }
+        }
+
+        player.sendMessage(ChatColor.GREEN + "Your report has been sent to admins.");
+        return true;
+    }
+
+    private boolean handleHelpMe(Player player, String[] args) {
+        if (args.length == 0) {
+            player.sendMessage(ChatColor.RED + "Usage: /helpme <message>");
+            return true;
+        }
+
+        String message = String.join(" ", args);
+        UUID helpRequestId = UUID.randomUUID();
+        pendingHelpRequests.put(helpRequestId, message);
+        helpRequestToPlayer.put(helpRequestId, player.getUniqueId());
+
+        // اطلاع‌رسانی به هلپرها
+        for (Player helper : Bukkit.getOnlinePlayers()) {
+            if (helper.hasPermission("requestplugin.manage.helprequests")) {
+                helper.sendMessage(ChatColor.BLUE + "[Help Request] " + ChatColor.GREEN + player.getName() + ": " + message);
+            }
+        }
+
+        player.sendMessage(ChatColor.GREEN + "Your help request has been sent to helpers.");
+        return true;
+    }
+    private UUID findReportIdByPlayer(Player player) {
+        for (Map.Entry<UUID, UUID> entry : reportToPlayer.entrySet()) {
+            if (entry.getValue().equals(player.getUniqueId())) {
+                return entry.getKey();
+            }
+        }
+        return null;
+        }
+    private boolean handleReports(Player player) {
+        if (!player.hasPermission("requestplugin.manage.reports")) {
+            player.sendMessage(ChatColor.RED + "You don't have permission to view reports!");
+            return true;
+        }
+
+        openReportsGUI(player);
+        return true;
+    }
+
+    private boolean handleHelpRequests(Player player) {
+        if (!player.hasPermission("requestplugin.manage.helprequests")) {
+            player.sendMessage(ChatColor.RED + "You don't have permission to view help requests!");
+            return true;
+        }
+
+        openHelpRequestsGUI(player);
+        return true;
+    }
+
+    private boolean handleAllRequests(Player player) {
+        if (!player.hasPermission("requestplugin.manage.allrequests")) {
+            player.sendMessage(ChatColor.RED + "You don't have permission to view all requests!");
+            return true;
+        }
+
+        openAllRequestsGUI(player);
+        return true;
+    }
+
+    private boolean handleReply(Player player, String[] args) {
+        if (args.length == 0) {
+            player.sendMessage(ChatColor.RED + "Usage: /reply <message>");
+            return true;
+        }
+
+        UUID targetUUID = activeChats.get(player.getUniqueId());
+        if (targetUUID == null) {
+            player.sendMessage(ChatColor.RED + "You are not in a private chat!");
+            return true;
+        }
+
+        Player target = Bukkit.getPlayer(targetUUID);
+        if (target == null) {
+            player.sendMessage(ChatColor.RED + "The player is no longer online.");
+            return true;
+        }
+
+        String message = String.join(" ", args);
+        target.sendMessage(ChatColor.GOLD + "[Private] " + ChatColor.GREEN + player.getName() + ": " + message);
+        player.sendMessage(ChatColor.GOLD + "[Private] " + ChatColor.GREEN + "You: " + message);
+
+        return true;
+    }
+
+    private void openReportsGUI(Player player) {
+        Inventory gui = Bukkit.createInventory(player, 27, ChatColor.RED + "Pending Reports");
+
+        for (Map.Entry<UUID, String> entry : pendingReports.entrySet()) {
+            UUID reportId = entry.getKey();
+            String message = entry.getValue();
+            Player reporter = Bukkit.getPlayer(reportToPlayer.get(reportId));
+
+            if (reporter != null) {
+                ItemStack item = new ItemStack(Material.PAPER);
+                ItemMeta meta = item.getItemMeta();
+                meta.setDisplayName(ChatColor.GREEN + reporter.getName());
+                meta.setLore(Arrays.asList(
+                        ChatColor.GRAY + "Type: " + ChatColor.RED + "Report",
+                        ChatColor.GRAY + "Message: " + ChatColor.WHITE + message,
+                        ChatColor.GRAY + "Click to accept or reject."
+                ));
+                item.setItemMeta(meta);
+
+                gui.addItem(item);
+            }
+        }
+
+        player.openInventory(gui);
+    }
+
+    private void openHelpRequestsGUI(Player player) {
+        Inventory gui = Bukkit.createInventory(player, 27, ChatColor.BLUE + "Pending Help Requests");
+
+        for (Map.Entry<UUID, String> entry : pendingHelpRequests.entrySet()) {
+            UUID helpRequestId = entry.getKey();
+            String message = entry.getValue();
+            Player requester = Bukkit.getPlayer(helpRequestToPlayer.get(helpRequestId));
+
+            if (requester != null) {
+                ItemStack item = new ItemStack(Material.PAPER);
+                ItemMeta meta = item.getItemMeta();
+                meta.setDisplayName(ChatColor.GREEN + requester.getName());
+                meta.setLore(Arrays.asList(
+                        ChatColor.GRAY + "Type: " + ChatColor.BLUE + "Help Request",
+                        ChatColor.GRAY + "Message: " + ChatColor.WHITE + message,
+                        ChatColor.GRAY + "Click to accept or reject."
+                ));
+                item.setItemMeta(meta);
+
+                gui.addItem(item);
+            }
+        }
+
+        player.openInventory(gui);
+    }
+
+    private void openAllRequestsGUI(Player player) {
+        Inventory gui = Bukkit.createInventory(player, 54, ChatColor.GOLD + "All Pending Requests");
+
+        // اضافه کردن گزارش‌ها
+        for (Map.Entry<UUID, String> entry : pendingReports.entrySet()) {
+            UUID reportId = entry.getKey();
+            String message = entry.getValue();
+            Player reporter = Bukkit.getPlayer(reportToPlayer.get(reportId));
+
+            if (reporter != null) {
+                ItemStack item = new ItemStack(Material.PAPER);
+                ItemMeta meta = item.getItemMeta();
+                meta.setDisplayName(ChatColor.GREEN + reporter.getName());
+                meta.setLore(Arrays.asList(
+                        ChatColor.GRAY + "Type: " + ChatColor.RED + "Report",
+                        ChatColor.GRAY + "Message: " + ChatColor.WHITE + message,
+                        ChatColor.GRAY + "Click to accept or reject."
+                ));
+                item.setItemMeta(meta);
+
+                gui.addItem(item);
+            }
+        }
+
+        // اضافه کردن درخواست‌های کمک
+        for (Map.Entry<UUID, String> entry : pendingHelpRequests.entrySet()) {
+            UUID helpRequestId = entry.getKey();
+            String message = entry.getValue();
+            Player requester = Bukkit.getPlayer(helpRequestToPlayer.get(helpRequestId));
+
+            if (requester != null) {
+                ItemStack item = new ItemStack(Material.PAPER);
+                ItemMeta meta = item.getItemMeta();
+                meta.setDisplayName(ChatColor.GREEN + requester.getName());
+                meta.setLore(Arrays.asList(
+                        ChatColor.GRAY + "Type: " + ChatColor.BLUE + "Help Request",
+                        ChatColor.GRAY + "Message: " + ChatColor.WHITE + message,
+                        ChatColor.GRAY + "Click to accept or reject."
+                ));
+                item.setItemMeta(meta);
+
+                gui.addItem(item);
+            }
+        }
+
+        player.openInventory(gui);
+    }
+
+    @EventHandler
+    public void onInventoryClick(InventoryClickEvent event) {
+        Player player = (Player) event.getWhoClicked();
+        String title = event.getView().getTitle();
+
+        if (title.equals(ChatColor.RED + "Pending Reports") || title.equals(ChatColor.BLUE + "Pending Help Requests") || title.equals(ChatColor.GOLD + "All Pending Requests")) {
+            event.setCancelled(true);
+
+            ItemStack clickedItem = event.getCurrentItem();
+
+            if (clickedItem != null && clickedItem.getType() == Material.PAPER) {
+                String requesterName = ChatColor.stripColor(clickedItem.getItemMeta().getDisplayName());
+                Player requester = Bukkit.getPlayer(requesterName);
+
+                if (requester != null) {
+                    if (title.equals(ChatColor.RED + "Pending Reports")) {
+                        UUID reportId = findReportIdByPlayer(requester);
+                        if (reportId != null) {
+                            pendingReports.remove(reportId);
+                            reportToPlayer.remove(reportId);
+
+                            if (event.isLeftClick()) {
+                                player.sendMessage(ChatColor.GREEN + "You accepted the report from " + requester.getName() + ".");
+                                requester.sendMessage(ChatColor.GREEN + "Your report was accepted by " + player.getName() + ".");
+
+                                // شروع چت خصوصی
+                                activeChats.put(player.getUniqueId(), requester.getUniqueId());
+                                activeChats.put(requester.getUniqueId(), player.getUniqueId());
+
+                                // تلپورت به بازیکن
+                                if (player.hasPermission("requestplugin.tp")) {
+                                    playerLocations.put(player.getUniqueId(), player.getLocation());
+                                    player.teleport(requester.getLocation());
+                                    player.sendMessage(ChatColor.GREEN + "You have been teleported to " + requester.getName() + ".");
+                                }
+                            } else if (event.isRightClick()) {
+                                player.sendMessage(ChatColor.RED + "You rejected the report from " + requester.getName() + ".");
+                                requester.sendMessage(ChatColor.RED + "Your report was rejected by " + player.getName() + ".");
+                            }
+                        }
+                    } else if (title.equals(ChatColor.BLUE + "Pending Help Requests")) {
+                        UUID helpRequestId = findHelpRequestIdByPlayer(requester);
+                        if (helpRequestId != null) {
+                            pendingHelpRequests.remove(helpRequestId);
+                            helpRequestToPlayer.remove(helpRequestId);
+
+                            if (event.isLeftClick()) {
+                                player.sendMessage(ChatColor.GREEN + "You accepted the help request from " + requester.getName() + ".");
+                                requester.sendMessage(ChatColor.GREEN + "Your help request was accepted by " + player.getName() + ".");
+
+                                // شروع چت خصوصی
+                                activeChats.put(player.getUniqueId(), requester.getUniqueId());
+                                activeChats.put(requester.getUniqueId(), player.getUniqueId());
+
+                                // تلپورت به بازیکن
+                                if (player.hasPermission("requestplugin.tp")) {
+                                    playerLocations.put(player.getUniqueId(), player.getLocation());
+                                    player.teleport(requester.getLocation());
+                                    player.sendMessage(ChatColor.GREEN + "You have been teleported to " + requester.getName() + ".");
+                                }
+                            } else if (event.isRightClick()) {
+                                player.sendMessage(ChatColor.RED + "You rejected the help request from " + requester.getName() + ".");
+                                requester.sendMessage(ChatColor.RED + "Your help request was rejected by " + player.getName() + ".");
+                            }
+                        }
+                    } else if (title.equals(ChatColor.GOLD + "All Pending Requests")) {
+                        UUID reportId = findReportIdByPlayer(requester);
+                        UUID helpRequestId = findHelpRequestIdByPlayer(requester);
+
+                        if (reportId != null) {
+                            pendingReports.remove(reportId);
+                            reportToPlayer.remove(reportId);
+
+                            if (event.isLeftClick()) {
+                                player.sendMessage(ChatColor.GREEN + "You accepted the report from " + requester.getName() + ".");
+                                requester.sendMessage(ChatColor.GREEN + "Your report was accepted by " + player.getName() + ".");
+
+                                // شروع چت خصوصی
+                                activeChats.put(player.getUniqueId(), requester.getUniqueId());
+                                activeChats.put(requester.getUniqueId(), player.getUniqueId());
+
+                                // تلپورت به بازیکن
+                                if (player.hasPermission("requestplugin.tp")) {
+                                    playerLocations.put(player.getUniqueId(), player.getLocation());
+                                    player.teleport(requester.getLocation());
+                                    player.sendMessage(ChatColor.GREEN + "You have been teleported to " + requester.getName() + ".");
+                                }
+                            } else if (event.isRightClick()) {
+                                player.sendMessage(ChatColor.RED + "You rejected the report from " + requester.getName() + ".");
+                                requester.sendMessage(ChatColor.RED + "Your report was rejected by " + player.getName() + ".");
+                            }
+                        } else if (helpRequestId != null) {
+                            pendingHelpRequests.remove(helpRequestId);
+                            helpRequestToPlayer.remove(helpRequestId);
+
+                            if (event.isLeftClick()) {
+                                player.sendMessage(ChatColor.GREEN + "You accepted the help request from " + requester.getName() + ".");
+                                requester.sendMessage(ChatColor.GREEN + "Your help request was accepted by " + player.getName() + ".");
+
+                                // شروع چت خصوصی
+                                activeChats.put(player.getUniqueId(), requester.getUniqueId());
+                                activeChats.put(requester.getUniqueId(), player.getUniqueId());
+
+                                // تلپورت به بازیکن
+                                if (player.hasPermission("requestplugin.tp")) {
+                                    playerLocations.put(player.getUniqueId(), player.getLocation());
+                                    player.teleport(requester.getLocation());
+                                    player.sendMessage(ChatColor.GREEN + "You have been teleported to " + requester.getName() + ".");
+                                }
+                            } else if (event.isRightClick()) {
+                                player.sendMessage(ChatColor.RED + "You rejected the help request from " + requester.getName() + ".");
+                                requester.sendMessage(ChatColor.RED + "Your");
+
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
